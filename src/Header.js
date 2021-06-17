@@ -1,10 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid */
 import React from 'react';
-import {Box, Heading} from 'grommet';
-import Avatar from './Avatar';
 import Link from 'next/link';
-import config from './config';
-import {PostBox} from './Post';
 
 function Header({gitHub, adminLinks}) {
   return (
@@ -28,6 +24,12 @@ function Header({gitHub, adminLinks}) {
             href="https://twitter.com/stopachka"
             target="_blank">
             Twitter
+          </a>
+          <a
+            style={{paddingLeft: '1em'}}
+            href="https://www.zeneca.io/stopa"
+            target="_blank">
+            Books
           </a>
         </h4>
       </header>

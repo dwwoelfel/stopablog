@@ -10,7 +10,7 @@ import Comments from './Comments';
 import Post from './Post';
 import ErrorBox from './ErrorBox';
 import Head from 'next/head';
-import config from './config';
+import ConfigContext from './ConfigContext';
 import Attribution from './Attribution';
 import parseMarkdown from './lib/parseMarkdown';
 import {useRouter} from 'next/router';
@@ -28,12 +28,12 @@ export const query = graphql`
     $repoName: String!
     $repoOwner: String!
   )
-    @persistedQueryConfiguration(
-      accessToken: {environmentVariable: "OG_GITHUB_TOKEN"}
-      fixedVariables: {environmentVariable: "REPOSITORY_FIXED_VARIABLES"}
-      freeVariables: ["issueNumber"]
-      cacheSeconds: 300
-    ) {
+  @persistedQueryConfiguration(
+    accessToken: {environmentVariable: "OG_GITHUB_TOKEN"}
+    fixedVariables: {environmentVariable: "REPOSITORY_FIXED_VARIABLES"}
+    freeVariables: ["issueNumber"]
+    cacheSeconds: 300
+  ) {
     gitHub {
       viewer {
         login
@@ -94,6 +94,7 @@ function buildDescription(body) {
 }
 
 export const PostRoot = ({issueNumber}: {issueNumber: number}) => {
+  const {config} = React.useContext(ConfigContext);
   const {basePath} = useRouter();
   const data: ?PostRoot_PostQueryResponse = useLazyLoadQuery<PostRoot_PostQuery>(
     query,
@@ -114,7 +115,7 @@ export const PostRoot = ({issueNumber}: {issueNumber: number}) => {
     !gitHub ||
     !post ||
     !labels ||
-    !labels.find(l => l && l.name.toLowerCase() === 'publish')
+    !labels.find((l) => l && l.name.toLowerCase() === 'publish')
   ) {
     return <ErrorBox error={new Error('Missing post.')} />;
   } else {

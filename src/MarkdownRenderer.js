@@ -4,7 +4,7 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import htmlParser from 'react-markdown/plugins/html-parser';
 import HtmlToReact from 'html-to-react';
-import Embed from 'react-embed';
+import Embed from './Embed';
 import GifPlayer from './GifPlayer';
 import imageUrl from './imageUrl';
 import {Anchor} from 'grommet/components/Anchor';
@@ -13,23 +13,31 @@ import {Heading} from 'grommet/components/Heading';
 import {Box} from 'grommet/components/Box';
 import {Text} from 'grommet/components/Text';
 import {ResponsiveContext} from 'grommet/contexts/ResponsiveContext';
+import {Table, TableHeader, TableBody, TableRow, TableCell} from 'grommet';
 import emoji from './emoji';
 import {fetchTokenInfo, defaultThemeColors} from './lib/codeHighlight';
 import {isPromise} from 'relay-runtime';
-import Config from './config';
+import Tippy from '@tippyjs/react';
+import {slugify} from './Post';
+import ConfigContext from './ConfigContext';
 
 import type {TokenInfo} from './lib/codeHighlight';
+import type {StatelessFunctionalComponent, Node} from 'react';
 
 type Props = {|
   source: string,
   trustedInput: boolean,
+  addHeadingIds?: ?boolean,
+  HashLink?: StatelessFunctionalComponent<{
+    hash: string,
+    children?: Node,
+  }>,
 |};
 
-class CodeBlock extends React.PureComponent<
-  {
-    value: string,
-    language: string,
-  },
+type CodeBlockProps = {|value: string, language: string, theme: string|};
+
+export class CodeBlock extends React.PureComponent<
+  CodeBlockProps,
   {
     tokenInfo: TokenInfo | Promise<TokenInfo>,
   },
@@ -38,22 +46,52 @@ class CodeBlock extends React.PureComponent<
     tokenInfo: fetchTokenInfo({
       code: this.props.value,
       language: this.props.language,
+      theme: this.props.theme,
     }),
   };
 
-  componentDidMount() {
-    const {tokenInfo} = this.state;
+  _updateTokenInfo = (tokenInfo: TokenInfo | Promise<TokenInfo>) => {
     if (isPromise(tokenInfo)) {
       tokenInfo
-        .then((res) => this.setState({tokenInfo: res}))
+        .then((res) => {
+          this.setState((prevState) => {
+            if (prevState.tokenInfo === tokenInfo) {
+              return {tokenInfo: res};
+            } else {
+              return prevState;
+            }
+          });
+        })
         .catch((e) => {
           console.error('Error fetching token info', e);
         });
     }
+  };
 
+  componentDidMount() {
+    this._updateTokenInfo(this.state.tokenInfo);
   }
+
+  componentDidUpdate(prevProps: CodeBlockProps) {
+    if (
+      this.props.value !== prevProps.value ||
+      this.props.language !== prevProps.language ||
+      this.props.theme !== prevProps.theme
+    ) {
+      const tokenInfo = fetchTokenInfo({
+        code: this.props.value,
+        language: this.props.language,
+        theme: this.props.theme,
+      });
+      this.setState({
+        tokenInfo,
+      });
+      this._updateTokenInfo(tokenInfo);
+    }
+  }
+
   render() {
-    const {language, value} = this.props;
+    const {language, value, theme} = this.props;
     const {tokenInfo} = this.state;
 
     if (!isPromise(tokenInfo)) {
@@ -96,10 +134,8 @@ class CodeBlock extends React.PureComponent<
           overflowX: 'auto',
           padding: '0.5em',
           borderRadius: 5,
-          color:
-            defaultThemeColors[Config.codeTheme]?.foregroundColor || '#fff',
-          background:
-            defaultThemeColors[Config.codeTheme]?.backgroundColor || '#000',
+          color: defaultThemeColors[theme]?.foregroundColor || '#fff',
+          background: defaultThemeColors[theme]?.backgroundColor || '#000',
         }}>
         <code className={`language-${language}`}>{value}</code>
       </pre>
@@ -112,8 +148,13 @@ function PlainImage(imageProps) {
   return (
     <Box as="span" align="center" justify="center" style={{display: 'flex'}}>
       {/*eslint-disable-next-line jsx-a11y/alt-text*/}
-      <img style={{maxWidth: '100%'}} src={imageUrl({src})} {...props} />
-      {props.isRss ? <br /> : null}
+      <img
+        style={{maxWidth: '100%'}}
+        // Don't proxy image if it's served on an RSS feed to avoid CORs errors
+        src={isRss ? src : imageUrl({src})}
+        {...props}
+      />
+      {isRss ? <br /> : null}
       {props.title ? (
         <Text
           style={{display: 'block'}}
@@ -122,7 +163,7 @@ function PlainImage(imageProps) {
           weight={300}
           color="dark-1"
           textAlign="center">
-          {props.isRss ? <em>{props.title}</em> : props.title}
+          {isRss ? <em>{props.title}</em> : props.title}
         </Text>
       ) : null}
     </Box>
@@ -135,8 +176,12 @@ function isGif(src: string) {
 }
 
 function Image(props) {
-  if (props.src && isGif(props.src)) {
-    return <GifPlayer style={{maxWidth: '100%'}} src={props.src} />;
+  if (props.src && isGif(props.src) && !props.isRss) {
+    return (
+      <Box margin={{vertical: 'medium'}}>
+        <GifPlayer style={{maxWidth: '100%'}} src={props.src} />
+      </Box>
+    );
   }
   return <PlainImage {...props} />;
 }
@@ -221,58 +266,163 @@ export function emojify(s: string): string {
   return emojified;
 }
 
+const HashLinkContext = React.createContext<?StatelessFunctionalComponent<{
+  hash: string,
+  children?: Node,
+}>>(null);
+
 function Link(props) {
-  /**
-   * NOTE(stopachka)
-   * Using plan `a` instead of `Anchord`, because `Anchor` overrides the font weight
-   * This makes it so if an `a` tag is inside of an `Heading`, it's weight will be different
-   */
-  return <a {...props} style={{textDecoration: 'underline'}} target="_blank" />
+  const HashLink = React.useContext(HashLinkContext);
+  if (props.href && props.href.startsWith('#') && HashLink) {
+    return <HashLink hash={props.href}>{props.children}</HashLink>;
+  }
+  return <a {...props} style={{textDecoration: 'underline'}} target="_blank" />;
 }
 
-const defaultRenderers = {
-  blockquote(props) {
-    return (
-      <Text color="dark-3">
-        <blockquote {...props} />
-      </Text>
-    );
-  },
-  text(props) {
-    const text = props.children;
-    return emojify(text);
-  },
-  inlineCode(props) {
-    return (
-      <code
-        style={{
-          padding: '.2em .4em',
-          borderRadius: 6,
-          background: 'rgba(27,31,35,.05)',
-        }}
-        {...props}
-      />
-    );
-  },
-  code(props) {
-    if (props.language === 'backmatter') {
-      return null;
-    }
-    return <CodeBlock {...props} />;
-  },
-  image: Image,
-  paragraph: ParagraphWrapper,
-  heading(props) {
-    /** 
-     * NOTE(stopachka) 
-     * Because this content is inside of a post, the highest heading level should be H2
-    */
-    return <Heading {...props} level={props.level} />
-  },
-  link: Link,
-  linkReference(props) {
-    return <Anchor {...props} />;
-  },
+function Code(props) {
+  const {config} = React.useContext(ConfigContext);
+  if (props.language === 'backmatter') {
+    return null;
+  }
+  return <CodeBlock theme={config.codeTheme} {...props} />;
+}
+
+function flatten(text, child) {
+  return typeof child === 'string'
+    ? text + child
+    : React.Children.toArray(child.props.children).reduce(flatten, text);
+}
+
+function headingSlug(props) {
+  const children = React.Children.toArray(props.children);
+  const text = children.reduce(flatten, '');
+  return slugify(text.toLowerCase());
+}
+
+function TableWrapper(props) {
+  return (
+    <div style={{overflowX: 'auto', overflowY: 'visible'}}>
+      <Table {...props} />
+    </div>
+  );
+}
+
+const defaultRenderers = ({
+  isRss,
+  addHeadingIds,
+}: {
+  isRss?: ?boolean,
+  addHeadingIds?: ?boolean,
+  HashLink?: ?StatelessFunctionalComponent<{
+    hash: string,
+    children?: Node,
+  }>,
+}) => {
+  const footnoteRefs = {};
+  return {
+    blockquote(props) {
+      return (
+        <Text color="dark-3">
+          <blockquote {...props} />
+        </Text>
+      );
+    },
+    text(props) {
+      const text = props.children;
+      return emojify(text);
+    },
+    inlineCode(props) {
+      return (
+        <code
+          style={{
+            padding: '.2em .4em',
+            borderRadius: 6,
+            background: 'rgba(27,31,35,.05)',
+          }}>
+          {props.children}
+        </code>
+      );
+    },
+    code: Code,
+    image: Image,
+    paragraph: ParagraphWrapper,
+    heading(props) {
+      /**
+       * NOTE(stopachka)
+       * Because this content is inside of a post, the highest heading level should be H2
+       */
+      return (
+        <Heading
+          id={addHeadingIds ? headingSlug(props) : undefined}
+          {...props}
+          level={props.level}
+        />
+      );
+    },
+    link: Link,
+    linkReference(props) {
+      return <span {...props} />;
+    },
+    table: TableWrapper,
+    tableHead: TableHeader,
+    tableBody: TableBody,
+    tableRow: TableRow,
+    tableCell: TableCell,
+    footnoteReference: function FootnoteReference(props) {
+      // This should be ok because we will always call these in the same order
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      const ref = footnoteRefs[props.identifier] || React.useRef();
+      footnoteRefs[props.identifier] = ref;
+      return (
+        <sup
+          style={{
+            lineHeight: 0,
+            cursor: 'pointer',
+            fontSize: '0.8em',
+          }}
+          ref={ref}>
+          {Object.keys(footnoteRefs).indexOf(props.identifier) + 1}
+        </sup>
+      );
+    },
+    footnoteDefinition: function footnoteDefinition(props) {
+      // This should be ok because we will always call these in the same order
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      const ref = footnoteRefs[props.identifier] || React.useRef();
+      footnoteRefs[props.identifier] = ref;
+      if (isRss) {
+        return (
+          <Box direction="row">
+            <sup
+              style={{
+                cursor: 'pointer',
+              }}>
+              {Object.keys(footnoteRefs).indexOf(props.identifier) + 1}
+            </sup>
+            {props.children}
+          </Box>
+        );
+      }
+      return (
+        <Tippy
+          arrow={false}
+          theme="light-border"
+          trigger="mouseenter focus click"
+          inertia={true}
+          interactive={true}
+          interactiveBorder={10}
+          duration={[75, 75]}
+          delay={500}
+          content={
+            <Box style={{transform: 'scale(0.8)'}}>
+              <Text size="small">{props.children}</Text>
+            </Box>
+          }
+          reference={ref}
+        />
+      );
+    },
+  };
 };
 
 const processNodeDefinitions = new HtmlToReact.ProcessNodeDefinitions(React);
@@ -300,12 +450,18 @@ const parseHtml = htmlParser({
 export default class MarkdownRenderer extends React.PureComponent<Props> {
   render() {
     return (
-      <ReactMarkdown
-        escapeHtml={this.props.trustedInput ? false : true}
-        source={this.props.source}
-        renderers={defaultRenderers}
-        astPlugins={this.props.trustedInput ? [parseHtml] : []}
-      />
+      <HashLinkContext.Provider value={this.props.HashLink}>
+        <ReactMarkdown
+          escapeHtml={this.props.trustedInput ? false : true}
+          source={this.props.source}
+          renderers={defaultRenderers({
+            isRss: false,
+            addHeadingIds: this.props.addHeadingIds,
+          })}
+          astPlugins={this.props.trustedInput ? [parseHtml] : []}
+          parserOptions={{footnotes: true}}
+        />
+      </HashLinkContext.Provider>
     );
   }
 }
@@ -315,17 +471,24 @@ export class RssMarkdownRenderer extends React.PureComponent<Props> {
     const {trustedInput} = this.props;
     return (
       <ReactMarkdown
-        trustedInput={trustedInput}
+        escapeHtml={this.props.trustedInput ? false : true}
         astPlugins={trustedInput ? [parseHtml] : []}
+        parserOptions={{footnotes: true}}
         source={this.props.source}
         renderers={{
-          ...defaultRenderers,
+          ...defaultRenderers({isRss: true}),
           image(props) {
             return <PlainImage isRss={true} {...props} />;
           },
           heading(props) {
             const {level, ...restProps} = props;
-            return <Heading level={level + 2} {...restProps} />;
+            return (
+              <Heading
+                id={headingSlug(props)}
+                level={level + 2}
+                {...restProps}
+              />
+            );
           },
         }}
       />

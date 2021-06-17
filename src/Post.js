@@ -28,6 +28,7 @@ import {query as postRootQuery} from './PostRoot';
 import {query as postsRootQuery} from './PostsRoot';
 import CommentsIcon from './CommentsIcon';
 import parseMarkdown from './lib/parseMarkdown';
+import Head from 'next/head';
 
 import type {Post_post} from './__generated__/Post_post.graphql';
 
@@ -496,7 +497,7 @@ function visitBackmatter(node: any, fn) {
   }
 }
 
-function postBackmatter(post) {
+export function postBackmatter(post: {+body: string}): Object {
   const backmatter = {};
   const ast = parseMarkdown(post.body);
   visitBackmatter(ast, (node) => {
@@ -509,20 +510,26 @@ function postBackmatter(post) {
   return backmatter;
 }
 
-export function computePostDate(post: {
-  +body: string,
-  +createdAt: string,
+export function computePostDate({
+  backmatter,
+  createdAt,
+}: {
+  backmatter: Object,
+  createdAt: string,
 }): Date {
-  const backmatter = postBackmatter(post);
   if (backmatter.publishedDate) {
     return new Date(backmatter.publishedDate);
   }
-  return new Date(post.createdAt);
+  return new Date(createdAt);
 }
 
 export const Post = ({relay, post, context}: Props) => {
   const environment = useRelayEnvironment();
-  const postDate = React.useMemo(() => computePostDate(post), [post]);
+  const backmatter = React.useMemo(() => postBackmatter(post), [post]);
+  const postDate = React.useMemo(
+    () => computePostDate({backmatter, createdAt: post.createdAt}),
+    [post],
+  );
   const number = post.number;
 
   const {loginStatus} = React.useContext(UserContext);
@@ -566,20 +573,49 @@ export const Post = ({relay, post, context}: Props) => {
     }
   }, [environment, context, number]);
 
+  // HACK
+  // making my georgian posts sans-serif, as they don't quite look right with
+  // serif
+  const alterStyle = `${post.number}` === '266' ? 
+    {
+      fontFamily: 'Helvetica Neue, Roboto, sans-serif'
+    }
+    : {}
   return (
     <PostBox>
-      <Box pad={{left: 'medium', right: 'medium', bottom: 'medium'}}>
-        <h1>
-          <Link href="/post/[...slug]" as={postPath({post})} shallow={true}>
-            <a style={{color: 'inherit'}}>{post.title}</a>
-          </Link>
-        </h1>
+      <Head>
+        {backmatter.canonical ? (
+          <link rel="canonical" href={backmatter.canonical} />
+        ) : null}
+      </Head>
 
-        <Box direction="row" justify="between"></Box>
-        <Text>
-          <MarkdownRenderer trustedInput={true} source={post.body} />
-        </Text>
-      </Box>
+      <div style={alterStyle}>
+        <Box pad={{left: 'medium', right: 'medium', bottom: 'medium'}}>
+          <h1>
+            <Link href="/post/[...slug]" as={postPath({post})} shallow={true}>
+              <a style={{color: 'inherit'}}>{post.title}</a>
+            </Link>
+          </h1>
+
+          <Box direction="row" justify="between"></Box>
+          <Text>
+            <MarkdownRenderer
+              trustedInput={true}
+              source={post.body}
+              addHeadingIds={context === 'details'}
+              HashLink={function HashLink(props) {
+                return (
+                  <Link
+                    href="/post/[...slug]"
+                    as={`${postPath({post})}${props.hash}`}>
+                    <a>{props.children}</a>
+                  </Link>
+                );
+              }}
+            />
+          </Text>
+        </Box>
+      </div>
     </PostBox>
   );
 };

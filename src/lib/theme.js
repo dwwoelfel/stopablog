@@ -45,6 +45,24 @@ export const theme = deepMerge(generate(24, 10), {
           `;
     },
   },
+  table: {
+    header: {
+      align: 'start',
+      pad: {horizontal: 'small', vertical: 'xsmall'},
+      border: 'small',
+      style: { fontWeight: 'bold'},
+    },
+    body: {
+      border: 'small',
+      align: 'start',
+      pad: {horizontal: 'small', vertical: 'xsmall'},
+    },
+    footer: {
+      align: 'start',
+      pad: {horizontal: 'small', vertical: 'xsmall'},
+      border: 'small',
+    },
+  },
 });
 
 export default theme;
